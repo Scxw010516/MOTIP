@@ -29,22 +29,29 @@ class MOTIP(nn.Module):
 
     def forward(self, **kwargs):
         assert "part" in kwargs, "Parameter `part` is required for MOTIP forward."
-        match kwargs["part"]:
-            case "detr":
-                frames = kwargs["frames"]
-                if "use_checkpoint" in kwargs:
-                    return checkpoint(
-                        self.detr, frames,
-                        use_reentrant=False,
-                    )
-                else:
-                    return self.detr(samples=frames)
-            case "trajectory_modeling":
-                seq_info = kwargs["seq_info"]
-                return self.trajectory_modeling(seq_info)
-            case "id_decoder":
-                seq_info = kwargs["seq_info"]
-                use_decoder_checkpoint = kwargs["use_decoder_checkpoint"] if "use_decoder_checkpoint" in kwargs else False
-                return self.id_decoder(seq_info, use_decoder_checkpoint=use_decoder_checkpoint)
-            case _:
-                raise NotImplementedError(f"MOTIP forwarding doesn't support part={kwargs['part']}.")
+        part = kwargs["part"]
+        if part == "detr":
+            frames = kwargs["frames"]
+            if "use_checkpoint" in kwargs:
+                return checkpoint(
+                    self.detr,
+                    frames,
+                    use_reentrant=False,
+                )
+            else:
+                return self.detr(samples=frames)
+        elif part == "trajectory_modeling":
+            seq_info = kwargs["seq_info"]
+            return self.trajectory_modeling(seq_info)
+        elif part == "id_decoder":
+            seq_info = kwargs["seq_info"]
+            use_decoder_checkpoint = (
+                kwargs["use_decoder_checkpoint"]
+                if "use_decoder_checkpoint" in kwargs
+                else False
+            )
+            return self.id_decoder(
+                seq_info, use_decoder_checkpoint=use_decoder_checkpoint
+            )
+        else:
+            raise NotImplementedError(f"MOTIP forwarding doesn't support part={part}.")

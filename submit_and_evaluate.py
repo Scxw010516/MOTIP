@@ -22,6 +22,16 @@ from models.misc import load_checkpoint
 
 
 def submit_and_evaluate(config: dict):
+    """
+    提交结果或评估模型的主入口函数。
+
+    该函数负责初始化环境（Accelerator, Logger），加载模型检查点，
+    并根据配置调用 submit_and_evaluate_one_model 进行具体的推理和评估工作。
+    如果是在评估模式下，还会记录最终的评估指标。
+
+    Args:
+        config (dict): 包含运行配置的字典，如输出路径、推理模式、数据集路径等。
+    """
     # Init Accelerator at beginning:
     accelerator = Accelerator()
     state = PartialState()
@@ -137,6 +147,39 @@ def submit_and_evaluate_one_model(
         inference_only_detr: bool = False,
         dtype: str = "FP32",
 ):
+    """
+    对单个模型在指定数据集上进行推理（提交）或评估。
+
+    该函数处理每一个视频序列，使用 RuntimeTracker 进行目标跟踪，
+    将结果保存为文件。如果是评估模式，还会调用 TrackEval 脚本计算各项指标（如 HOTA, MOTA）。
+    在多 GPU 环境下，会自动分配序列给不同的进程处理。
+
+    Args:
+        is_evaluate (bool): 是否为评估模式。如果是 True，则会计算评估指标；否则仅生成提交文件。
+        accelerator (Accelerator): HuggingFace Accelerator 对象，用于处理分布式训练/推理。
+        state (PartialState): Accelerator 的状态对象。
+        logger (Logger): 日志记录器。
+        model: 加载好的 MOTIP 模型实例。
+        data_root (str): 数据集根目录。
+        dataset (str): 数据集名称（如 "DanceTrack"）。
+        data_split (str): 数据集划分（如 "val", "test"）。
+        outputs_dir (str): 结果输出目录。
+        image_max_shorter (int): 推理时图像短边的最大长度。
+        image_max_longer (int): 推理时图像长边的最大长度。
+        size_divisibility (int): 图像尺寸的除数限制。
+        use_sigmoid (bool): 是否在输出层使用 Sigmoid 激活。
+        assignment_protocol (str): 匈牙利匹配或其他分配协议。
+        miss_tolerance (int): 允许丢失目标的最大帧数（用于轨迹管理）。
+        det_thresh (float): 检测置信度阈值。
+        newborn_thresh (float): 新生目标置信度阈值。
+        id_thresh (float): ID 匹配阈值。
+        area_thresh (int): 过滤小面积目标的阈值。
+        inference_only_detr (bool): 是否仅使用 DETR 进行检测（不进行跟踪）。
+        dtype (str): 推理使用的数据类型 ("FP32" 或 "FP16")。
+
+    Returns:
+        metrics (Metrics | None): 如果是评估模式，返回包含各项指标的对象；否则返回 None。
+    """
     # Build the datasets:
     inference_dataset = dataset_classes[dataset](
         data_root=data_root,
@@ -348,6 +391,21 @@ def get_results_of_one_sequence(
         runtime_tracker: RuntimeTracker,
         sequence_loader: DataLoader,
 ):
+    """
+    处理单个视频序列，获取跟踪结果。
+
+    该函数遍历序列加载器中的每一帧，更新 RuntimeTracker 的状态，并收集每一帧的跟踪结果。
+    同时会跳过前 10 帧来预热，以计算更准确的推理 FPS。
+
+    Args:
+        logger (Logger): 日志记录器。
+        runtime_tracker (RuntimeTracker): 运行时跟踪器实例，维护跟踪状态。
+        sequence_loader (DataLoader): 该视频序列的数据加载器。
+
+    Returns:
+        tracker_results (list): 包含每一帧跟踪结果的列表。
+        fps (float): 推理帧率。
+    """
     tracker_results = []
     assert len(sequence_loader) > 10, "The sequence loader is too short."
     for t, (image, image_path) in enumerate(sequence_loader):
@@ -364,6 +422,17 @@ def get_results_of_one_sequence(
 
 
 def get_eval_metrics_dict(metric_path: str):
+    """
+    从评估结果文件中读取指标字典。
+
+    读取保存评估结果的文本文件（通常由 TrackEval 生成），解析指标名称和对应的值。
+
+    Args:
+        metric_path (str): 评估结果文件的路径。
+
+    Returns:
+        metrics (dict): 包含指标名称和浮点数值的字典。
+    """
     with open(metric_path) as f:
         metric_names = f.readline()[:-1].split(" ")
         metric_values = f.readline()[:-1].split(" ")
